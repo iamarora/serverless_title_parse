@@ -1,17 +1,22 @@
 import boto3
 import requests
 import os
+import uuid
 
 from botocore import UNSIGNED
 from botocore.client import Config
 from bs4 import BeautifulSoup
 from tld import get_tld
 
-
+# #S3 configurations
 s3 = boto3.resource('s3')
 client = boto3.client('s3', config=Config(signature_version=UNSIGNED))
-
 bucket = os.environ['bucket_name']
+
+# #DynamoDB configurations
+dynamodb = boto3.resource('dynamodb')
+table_name = os.environ['table_name']
+
 
 def upload_to_s3(html_string, url):
     # Save it to local storage of Lambda, having a limit of 512MB
@@ -27,6 +32,12 @@ def upload_to_s3(html_string, url):
     s3_url = client.generate_presigned_url('get_object', ExpiresIn=0,
                                            Params={'Bucket': bucket, 'Key': fname})
     return s3_url
+
+
+def save_to_dynamo(data):
+    table = dynamodb.Table(table_name)
+    data.update({'id': str(uuid.uuid1())})
+    table.put_item(Item=data)
 
 
 def request_get(url):
@@ -50,8 +61,10 @@ def parse_title(event, context):
     if response:
         s3_url = upload_to_s3(response, url)
         title = get_title_from_html_string(response)
-        return_value = {"title": title,
+        return_value = {"url": url,
+                        "title": title,
                         "s3_url": s3_url}
+        save_to_dynamo(return_value)
     if error:
         return_value = {"error": error}
 
