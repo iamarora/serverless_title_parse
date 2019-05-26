@@ -27,6 +27,28 @@ STATUS_PROCESSED = 'PROCESSED'
 
 
 ##########################################################################################################
+##Logging for debugging
+##########################################################################################################
+import logging
+import sys
+
+
+def setup_logging():
+    '''Within your lambda handler.
+    logger = setup_logging()
+    logger.info('Log')
+    '''
+    logger = logging.getLogger()
+    for h in logger.handlers:
+      logger.removeHandler(h)
+    h = logging.StreamHandler(sys.stdout)
+    FORMAT = '%(asctime)s %(message)s'
+    h.setFormatter(logging.Formatter(FORMAT))
+    logger.addHandler(h)
+    logger.setLevel(logging.INFO)
+    return logger
+
+##########################################################################################################
 ##Helper functions
 ##########################################################################################################
 
@@ -68,7 +90,8 @@ def update_to_dynamo(key, data):
 def get_from_dynamo(key):
     table = dynamodb.Table(table_name)
     record = table.get_item(Key=key)
-    return record["Item"]
+    if record.get('Item'):
+        return record["Item"]
 
 
 def request_get(url):
@@ -90,27 +113,35 @@ def get_title_from_html_string(html_string):
 ##Registered AWS Lambda funcitons below.
 ##########################################################################################################
 def parse_title(event, context):
-    url = event['url']
-    response, error = request_get(url)
-    s3_url = None
-    if response:
-        s3_url = upload_to_s3(response, url)
-        title = get_title_from_html_string(response)
-    if error:
-        title = error
-    key = {'id': event['id']}
-    data = {'s3_url': s3_url, 'title': title}
-    data['record_state'] = STATUS_PROCESSED
-    update_to_dynamo(key, data)
+    '''
+    logger = setup_logging()
+    logger.info(event)
+    '''
+    data = event['Records'][0]
+    event_name = data['eventName']
+    record = data['dynamodb']
+    new_record = record.get('NewImage')
+    logger.info(event_name)
+    logger.info(new_record)
+    if event_name == 'INSERT' and new_record:
+        url = new_record['url']['S']
+        response, error = request_get(url)
+        s3_url = None
+        if response:
+            s3_url = upload_to_s3(response, url)
+            title = get_title_from_html_string(response)
+        if error:
+            title = error
+        key = {'id': new_record['id']['S']}
+        data = {'s3_url': s3_url, 'title': title}
+        data['record_state'] = STATUS_PROCESSED
+        update_to_dynamo(key, data)
 
 
 def async_parse_title(event, context):
     url = event
     return_value = {'url': url, 'record_state': STATUS_PENDING}
     save_to_dynamo(return_value)
-    lambda_client.invoke(FunctionName="service-dev-parse_title",
-                         InvocationType='Event',
-                         Payload=json.dumps(return_value))
     return return_value
 
 

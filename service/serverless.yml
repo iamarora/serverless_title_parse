@@ -81,6 +81,14 @@ provider:
 functions:
   parse_title:
     handler: handler.parse_title
+    events:
+      - stream:
+          type: dynamodb
+          arn:
+            Fn::GetAtt:
+              - dynamoTitleTable
+              - StreamArn
+          batchSize: 1
   async_parse_title:
       handler: handler.async_parse_title
   get_processed_title:
