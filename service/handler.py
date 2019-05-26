@@ -1,12 +1,14 @@
 import boto3
-import requests
+import json
 import os
+import requests
 import uuid
 
 from botocore import UNSIGNED
 from botocore.client import Config
 from bs4 import BeautifulSoup
 from tld import get_tld
+
 
 # #S3 configurations
 s3 = boto3.resource('s3')
@@ -17,9 +19,20 @@ bucket = os.environ['bucket_name']
 dynamodb = boto3.resource('dynamodb')
 table_name = os.environ['table_name']
 
+# #Lambda client
+lambda_client = boto3.client('lambda')
+
+STATUS_PENDING = 'PENDING'
+STATUS_PROCESSED = 'PROCESSED'
+
+
+##########################################################################################################
+##Helper functions
+##########################################################################################################
 
 def upload_to_s3(html_string, url):
-    # Save it to local storage of Lambda, having a limit of 512MB
+    # #Function to create a file from string and save to s3.
+    # #Save it to local storage of Lambda, having a limit of 512MB
     url_parts = get_tld(url, as_object=True)
     fname = "{}{}.html".format(url_parts.subdomain, url_parts.fld)
     tmp_file_path = "/tmp/{}".format(fname)
@@ -40,6 +53,24 @@ def save_to_dynamo(data):
     table.put_item(Item=data)
 
 
+def update_to_dynamo(key, data):
+    table = dynamodb.Table(table_name)
+    update_exp  = "SET "
+    exp_attr_values = {}
+    for k, v in data.items():
+        update_exp += "{} = :{},".format(k, k)
+        exp_attr_values[":{}".format(k)] = v
+    table.update_item(Key=key,
+            UpdateExpression=update_exp[:-1],
+            ExpressionAttributeValues=exp_attr_values)
+
+
+def get_from_dynamo(key):
+    table = dynamodb.Table(table_name)
+    record = table.get_item(Key=key)
+    return record["Item"]
+
+
 def request_get(url):
     response, error = None, None
     try:
@@ -52,21 +83,38 @@ def request_get(url):
 def get_title_from_html_string(html_string):
     soup = BeautifulSoup(html_string, features="html.parser")
     title = soup.title # # finds the first title element anywhere in the html document
-    return title.string
+    return str(title.string)
 
 
+##########################################################################################################
+##Registered AWS Lambda funcitons below.
+##########################################################################################################
 def parse_title(event, context):
-    url = event
+    url = event['url']
     response, error = request_get(url)
+    s3_url = None
     if response:
         s3_url = upload_to_s3(response, url)
         title = get_title_from_html_string(response)
-        return_value = {"url": url,
-                        "title": title,
-                        "s3_url": s3_url}
-        save_to_dynamo(return_value)
     if error:
-        return_value = {"error": error}
+        title = error
+    key = {'id': event['id']}
+    data = {'s3_url': s3_url, 'title': title}
+    data['record_state'] = STATUS_PROCESSED
+    update_to_dynamo(key, data)
 
+
+def async_parse_title(event, context):
+    url = event
+    return_value = {'url': url, 'record_state': STATUS_PENDING}
+    save_to_dynamo(return_value)
+    lambda_client.invoke(FunctionName="service-dev-parse_title",
+                         InvocationType='Event',
+                         Payload=json.dumps(return_value))
     return return_value
+
+
+def get_processed_title(event, context):
+    key = {'id': event}
+    return get_from_dynamo(key)
 

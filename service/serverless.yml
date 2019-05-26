@@ -20,6 +20,14 @@ service: service # NOTE: update this with your service name
 provider:
   name: aws
   runtime: python3.7
+  environment:
+    bucket_name: 'html-response-text'
+    table_name: 'html-response-title'
+  iamRoleStatements:
+    - Effect: Allow
+      Action:
+        lambda:InvokeFunction
+      Resource: "*"
 
 # you can overwrite defaults here
 #  stage: dev
@@ -57,9 +65,11 @@ provider:
 functions:
   parse_title:
     handler: handler.parse_title
-    environment:
-      bucket_name: 'html-response-text'
-      table_name: 'html-response-title'
+  async_parse_title:
+      handler: handler.async_parse_title
+  get_processed_title:
+      handler: handler.get_processed_title
+
 #    The following are a few example events you can configure
 #    NOTE: Please make sure to change your handler code to work with those events
 #    Check the event documentation for details
