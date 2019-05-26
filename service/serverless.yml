@@ -4,7 +4,7 @@ provider:
   name: aws
   runtime: python3.7
   environment:
-    bucket_name: 'html-response-text'
+    bucket_name: 'html-response-body'
     table_name: 'html-response-title'
   iamRoleStatements:
     - Effect: Allow
@@ -62,6 +62,11 @@ resources:
         TableName: ${self:provider.environment.table_name}
         StreamSpecification:
           StreamViewType: NEW_IMAGE
+    HTMLResponseBucket:
+      Type: 'AWS::S3::Bucket'
+      Properties:
+        BucketName: ${self:provider.environment.bucket_name}
+
 
 plugins:
   - serverless-python-requirements

@@ -121,8 +121,6 @@ def parse_title(event, context):
     event_name = data['eventName']
     record = data['dynamodb']
     new_record = record.get('NewImage')
-    logger.info(event_name)
-    logger.info(new_record)
     if event_name == 'INSERT' and new_record:
         url = new_record['url']['S']
         response, error = request_get(url)
